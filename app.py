@@ -1,10 +1,13 @@
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, request, send_file
 import io
-import base64
 import logging
 import torch
 from diffusers import StableDiffusionPipeline
 import warnings
+import openpyxl
+from openpyxl.drawing.image import Image
+import os
+import tempfile
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -49,14 +52,6 @@ def generate_image(prompt: str):
         logger.error(f"Image generation failed: {str(e)}")
         raise RuntimeError(f"Image generation failed: {str(e)}")
 
-@app.route('/')
-def index():
-    try:
-        return render_template('index.html')
-    except Exception as e:
-        logger.error(f"Error rendering template: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
-
 @app.route('/generate', methods=['POST'])
 def generate():
     try:
@@ -68,14 +63,42 @@ def generate():
         if not isinstance(prompt, str) or not prompt.strip():
             return jsonify({'error': 'Prompt must be a non-empty string'}), 400
 
+        # Generate the image
         image = generate_image(prompt)
 
-        img_byte_arr = io.BytesIO()
-        image.save(img_byte_arr, format='PNG')
-        img_byte_arr = img_byte_arr.getvalue()
-        encoded_image = base64.b64encode(img_byte_arr).decode('utf-8')
+        # Save the image to a temporary file
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_img_file:
+            image.save(temp_img_file, format='PNG')
+            temp_img_path = temp_img_file.name
 
-        return jsonify({'image': encoded_image})
+        # Create an Excel file
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Generated Image"
+
+        # Add the prompt to the first cell
+        ws['A1'] = "Prompt"
+        ws['B1'] = prompt
+
+        # Embed the image in the Excel sheet
+        img = Image(temp_img_path)
+        ws.add_image(img, 'A2')
+
+        # Save the Excel file to a temporary file
+        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as temp_excel_file:
+            wb.save(temp_excel_file.name)
+            temp_excel_path = temp_excel_file.name
+
+        # Clean up the temporary image file
+        os.remove(temp_img_path)
+
+        # Send the Excel file as a response
+        return send_file(
+            temp_excel_path,
+            as_attachment=True,
+            download_name='generated_image.xlsx',
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
 
     except ValueError as ve:
         logger.warning(f"Generation error: {str(ve)}")
@@ -83,6 +106,13 @@ def generate():
     except Exception as e:
         logger.error(f"Error in generate endpoint: {str(e)}")
         return jsonify({'error': 'Failed to generate image'}), 500
+    finally:
+        # Clean up the temporary Excel file if it exists
+        if 'temp_excel_path' in locals() and os.path.exists(temp_excel_path):
+            try:
+                os.remove(temp_excel_path)
+            except Exception as e:
+                logger.error(f"Failed to delete temporary Excel file: {str(e)}")
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001, debug=True)

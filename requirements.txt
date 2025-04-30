@@ -5,6 +5,7 @@ torchvision
 pillow
 transformers
 accelerate
+openpyxl
 numpy==1.26.3
 blinker==1.8.2
 certifi==2024.2.2
