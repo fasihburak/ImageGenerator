@@ -73,8 +73,11 @@ def generate():
         if not isinstance(prompt, str) or not prompt.strip():
             return jsonify({'error': 'Prompt must be a non-empty string'}), 400
 
+        # Get the number of images from the request body
+        num_images = int(data.get('numberOfImages', 5))
+        logger.info(f'Generating {num_images} image(s) in total...')
         # Generate five images
-        images = generate_images(prompt, num_images=5)
+        images = generate_images(prompt, num_images=num_images)
 
         # Create an Excel file
         wb = openpyxl.Workbook()
